@@ -12,7 +12,7 @@ def raise_exception(status_code, detail):
     raise HTTPException(status_code=status_code, detail=detail)
 
 @router.get("/lab_requests-fetch/", response_model=list[LaboratoryRequestsOut])
-async def fetch_all_lab_request_data(hospital_id, sort_term: str, sort_dir: str):
+async def fetch_all_lab_request_data(hospital_id: int, sort_term: str, sort_dir: str):
     lab_requests = await fetch_lab_requests(hospital_id, sort_term, sort_dir)
     if not lab_requests:
         raise_exception(404, "lab_requests not found")
