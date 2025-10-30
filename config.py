@@ -3,13 +3,10 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
 ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+ssl_context.check_hostname = True
+ssl_context.verify_mode = ssl.CERT_REQUIRED
 
-DATABASE_URL = (
-    "postgresql+asyncpg://avnadmin:AVNS_HRBwlm0AAhqnby_1cKO@"
-    "pg-38e84635-werecastro2006-9c43.i.aivencloud.com:25061/defaultdb"
-)
+DATABASE_URL = "postgresql+asyncpg://neondb_owner:npg_GCuZdOEo5VL8@ep-fancy-voice-adzf2ges-pooler.c-2.us-east-1.aws.neon.tech/neondb"
 
 engine = create_async_engine(
     DATABASE_URL,
