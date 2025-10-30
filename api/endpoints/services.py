@@ -12,7 +12,7 @@ def raise_exception(status_code, detail):
     raise HTTPException(status_code=status_code, detail=detail)
 
 @router.get("/services-fetch/", response_model=list[ServicesOut])
-async def fetch_all_service_data(hospital_id, sort_term: str, sort_dir: str):
+async def fetch_all_service_data(hospital_id: int, sort_term: str, sort_dir: str):
     services = await fetch_services(hospital_id, sort_term, sort_dir)
     if not services:
         raise_exception(404, "services not found")
