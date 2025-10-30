@@ -13,7 +13,7 @@ def raise_exception(status_code, detail):
     raise HTTPException(status_code=status_code, detail=detail)
 
 @router.get("/drugs-fetch/", response_model=list[DrugsOut])
-async def fetch_all_drug_data(hospital_id, sort_term: str, sort_dir: str):
+async def fetch_all_drug_data(hospital_id: int, sort_term: str, sort_dir: str):
     drugs = await fetch_drugs(hospital_id, sort_term, sort_dir)
     if not drugs:
         raise_exception(404, "drugs not found")
