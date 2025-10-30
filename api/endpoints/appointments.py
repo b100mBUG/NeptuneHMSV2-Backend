@@ -13,7 +13,7 @@ def raise_exception(status_code, detail):
     raise HTTPException(status_code=status_code, detail=detail)
 
 @router.get("/appointments-fetch/", response_model=list[AppointmentsOut])
-async def fetch_all_appointment_data(hospital_id, sort_term: str, sort_dir: str):
+async def fetch_all_appointment_data(hospital_id: int, sort_term: str, sort_dir: str):
     appointments = await fetch_appointments(hospital_id, sort_term, sort_dir)
     if not appointments:
         raise_exception(404, "appointments not found")
