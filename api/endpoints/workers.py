@@ -16,7 +16,7 @@ def raise_exception(status_code, detail):
     raise HTTPException(status_code=status_code, detail=detail)
 
 @router.get("/workers-fetch/", response_model=list[WorkersOut])
-async def fetch_all_worker_data(hospital_id, sort_term: str, sort_dir: str):
+async def fetch_all_worker_data(hospital_id: int, sort_term: str, sort_dir: str):
     workers = await fetch_workers(hospital_id, sort_term, sort_dir)
     if not workers:
         raise_exception(404, "workers not found")
@@ -44,7 +44,7 @@ async def add_workers(hospital_id: int, worker: WorkersIn):
     return worker
 
 @router.post("/workers-signin/", response_model=WorkersOut)
-async def worker_login(hospital_id, worker_detail: Signin):
+async def worker_login(hospital_id: int, worker_detail: Signin):
     worker = await signin(hospital_id, worker_detail.model_dump())
     if not worker:
         raise_exception(404, "worker not found")
