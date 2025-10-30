@@ -13,7 +13,7 @@ def raise_exception(status_code, detail):
     raise HTTPException(status_code=status_code, detail=detail)
 
 @router.get("/patients-fetch/", response_model=list[PatientsOut])
-async def fetch_all_patient_data(hospital_id, sort_term: str, sort_dir: str):
+async def fetch_all_patient_data(hospital_id: int, sort_term: str, sort_dir: str):
     patients = await fetch_patients(hospital_id, sort_term, sort_dir)
     if not patients:
         raise_exception(404, "patients not found")
