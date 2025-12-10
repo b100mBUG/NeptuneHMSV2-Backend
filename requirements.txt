@@ -1,0 +1,10 @@
+fastapi
+sqlalchemy
+bcrypt==4.0.1
+passlib[bcrypt]==1.7.4
+asyncpg
+pydantic
+pydantic[email]
+uvicorn
+reportlab
+pandas
