@@ -6,6 +6,8 @@ DATABASE_URL = (
     "ep-noisy-king-ah8z3emv-pooler.c-3.us-east-1.aws.neon.tech/neondb"
 )
 
+#DATABASE_URL = "sqlite+aiosqlite:///database.db"
+
 
 engine = create_async_engine(
     DATABASE_URL,

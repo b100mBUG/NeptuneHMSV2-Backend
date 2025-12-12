@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from fastapi.exceptions import HTTPException
 from database.actions.billing import(
     show_total_billings, show_total_patient_billings,
-    show_total_patient_billings_today
+    show_total_patient_billings_today, search_billings
 )
 from api.schemas.billings import BillingOut
 
@@ -14,6 +14,13 @@ def raise_exception(status_code, detail):
 @router.get("/billings/show-all/", response_model=list[BillingOut])
 async def show_all_billings(hospital_id: str):
     billings = await show_total_billings(hospital_id)
+    if not billings:
+        raise_exception(404, "Billings not found")
+    return billings
+
+@router.get("/billings/search/", response_model=list[BillingOut])
+async def show_all_billings(hospital_id: str, search_term):
+    billings = await search_billings(hospital_id, search_term)
     if not billings:
         raise_exception(404, "Billings not found")
     return billings
