@@ -27,7 +27,7 @@ EXPORT_DIR = "exports"
 os.makedirs(EXPORT_DIR, exist_ok=True)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__)) 
-logo_path = os.path.join(BASE_DIR, ".png")
+logo_path = os.path.join(BASE_DIR, "logo.png")
 
 router = APIRouter()
 
@@ -56,59 +56,68 @@ async def fetch_specific_patient(hospital_id: str, patient_id: str):
     return patient
 
 @router.get("/patients-export-pdf")
-async def export_patient_pdf(hospital_id: str, filter):
+async def export_patient_pdf(
+    hospital_id: str,
+    filter: str
+):
     patients = await fetch_patients(hospital_id, "all", "desc")
     if not patients:
         raise_exception(404, "Patients not found")
-        return
-    if filter == "all":
-        patients = patients
-    elif filter == "new":
-        today = datetime.today().date()
-        thirty_days_ago = today - timedelta(days=30)
 
+    today = datetime.today().date()
+
+    def calculate_age(dob):
+        return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+    if filter == "all":
+        pass
+
+    elif filter == "new":
+        thirty_days_ago = today - timedelta(days=30)
         patients = [
-            pat for pat in patients
-            if thirty_days_ago <= pat.date_added.date() <= today
+            p for p in patients
+            if thirty_days_ago <= p.date_added.date() <= today
         ]
 
     elif filter == "adults":
-        today = datetime.today().date()
-        adult_pats = []
+        patients = [
+            p for p in patients
+            if calculate_age(p.patient_dob) >= 18
+        ]
 
-        for pat in patients:
-            dob = pat.patient_dob
-            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            
-            if age >= 18:
-                adult_pats.append(pat)
-        
-        patients = adult_pats
-    
     elif filter == "children":
-        today = datetime.today().date()
-        child_pats = []
-        print(patients)
-        for pat in patients:
-            dob = pat.patient_dob
-            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            
-            if age < 18:
-                child_pats.append(pat)
-        
-        patients = child_pats
-    
+        patients = [
+            p for p in patients
+            if calculate_age(p.patient_dob) < 18
+        ]
+
     elif filter == "male":
-        patients = [pat for pat in patients if pat.patient_gender.lower() == "male"]
-    
+        patients = [
+            p for p in patients
+            if p.patient_gender and p.patient_gender.lower() == "male"
+        ]
+
     elif filter == "female":
-        patients = [pat for pat in patients if pat.patient_gender.lower() == "female"]
-    
+        patients = [
+            p for p in patients
+            if p.patient_gender and p.patient_gender.lower() == "female"
+        ]
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid filter")
+
+    if not patients:
+        raise_exception(404, "No patients matched the filter")
+
     hospital = await get_specific_hospital(hospital_id)
     if not hospital:
         raise HTTPException(status_code=404, detail="hospital not found")
-    
-    filename = f"{hospital.hospital_name}_{filter.lower()}_patients_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+    filename = (
+        f"{hospital.hospital_name}_"
+        f"{filter.lower()}_patients_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    )
     path = os.path.join(EXPORT_DIR, filename)
 
     doc = SimpleDocTemplate(
@@ -121,122 +130,138 @@ async def export_patient_pdf(hospital_id: str, filter):
     )
 
     styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Title'],
-        alignment=1,
-        fontSize=18,
-        textColor=colors.HexColor("#2F4F4F"),
-        spaceAfter=12
-    )
-
-    header_style = ParagraphStyle(
-        'HeaderStyle',
-        parent=styles['Normal'],
-        fontSize=11,
-        leading=14,
-        spaceAfter=14,
-    )
-
-    table_cell_style = ParagraphStyle(
-        'TableCell',
-        parent=styles['Normal'],
-        fontSize=10,
-    )
-
-    footer_style = ParagraphStyle(
-        'Footer',
-        parent=styles['Normal'],
-        alignment=1,
-        fontSize=10,
-        textColor=colors.HexColor("#555555"),
-    )
-
     elements = []
+
+    elements.append(Paragraph(
+        f"<b>{hospital.hospital_name}</b><br/>"
+        f"{hospital.hospital_email} | {hospital.hospital_contact}<br/>"
+        f"Date: {today.strftime('%B %d, %Y')}",
+        styles["Normal"]
+    ))
+
+    elements.append(Spacer(1, 12))
 
     if os.path.exists(logo_path):
         logo = Image(logo_path, width=90, height=90)
-        logo.hAlign = 'CENTER'
+        logo.hAlign = "CENTER"
         elements.append(logo)
-        elements.append(Spacer(1, 8))
+        elements.append(Spacer(1, 20))
+    else:
+        print("Failed to load:", logo_path)
 
-    hospital_info = f"""
-    <b>{hospital.hospital_name}</b><br/>
-    {hospital.hospital_email} | {hospital.hospital_contact}<br/>
-    Date: {datetime.today().strftime("%B %d, %Y")}
-    """
+    elements.append(Paragraph(
+        f"{filter.capitalize()} Patients Report",
+        styles["Title"]
+    ))
 
-    elements.append(Paragraph(hospital_info, header_style))
-    elements.append(Spacer(1, 25))
+    elements.append(Spacer(1, 15))
 
-    report_title = f"{filter.capitalize()} Patients Report"
-    elements.append(Paragraph(report_title, title_style))
-    elements.append(Spacer(1, 14))
-
-
-    data = [
-        ["Patient", "Email", "Phone", "ID No.", "Gender", "D.O.B", "Date Added"]
-    ]
+    data = [[
+        "Patient", "Email", "Phone",
+        "ID No.", "Gender", "D.O.B", "Date Added"
+    ]]
 
     for p in patients:
         data.append([
-            Paragraph(p.patient_name or "", table_cell_style),
-            Paragraph(p.patient_email or "", table_cell_style),
-            Paragraph(p.patient_phone or "", table_cell_style),
-            Paragraph(p.patient_id_number or "", table_cell_style),
-            Paragraph(p.patient_gender or "", table_cell_style),
-            Paragraph(str(p.patient_dob).split(" ")[0], table_cell_style),
-            Paragraph(str(p.date_added).split(" ")[0], table_cell_style)
+            p.patient_name or "",
+            p.patient_email or "",
+            p.patient_phone or "",
+            p.patient_id_number or "",
+            p.patient_gender or "",
+            p.patient_dob.strftime("%Y-%m-%d"),
+            p.date_added.strftime("%Y-%m-%d")
         ])
 
-    col_widths = [
-        3.0*cm, 4.0*cm,3.0*cm,
-        2.2*cm, 1.8*cm, 2.2*cm, 
-        2.3*cm  
-    ]
-
-    table = Table(data, colWidths=col_widths, repeatRows=1)
-
-    table_style = TableStyle([
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.4, colors.grey),
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#2F8F46")),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,0), 11),
-
-        ('GRID', (0,0), (-1,-1), 0.4, colors.grey),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.whitesmoke, colors.lightgrey]),
-
-        ('LEFTPADDING', (0,0), (-1,-1), 4),
-        ('RIGHTPADDING', (0,0), (-1,-1), 4),
-    ])
-
-    table.setStyle(table_style)
+    ]))
 
     elements.append(table)
-    elements.append(Spacer(1, 35))
-
-    signature_section = """
-    <br/><br/>
-    _____________________________<br/>
-    <b>Authorized Signature</b><br/>
-    Generated by <b>NeptuneHMS Admin</b>
-    """
-
-    elements.append(Paragraph(signature_section, styles["Normal"]))
-    elements.append(Spacer(1, 40))
-
-
-    footer_text = "This report was generated electronically and does not require a physical signature."
-    elements.append(Paragraph(footer_text, footer_style))
 
     doc.build(elements)
 
     return FileResponse(
         path,
         media_type="application/pdf",
+        filename=filename
+    )
+
+
+@router.get("/patients-export-csv")
+async def export_patient_csv(
+    hospital_id: str,
+    filter: str
+):
+    patients = await fetch_patients(hospital_id, "all", "desc")
+    if not patients:
+        raise_exception(404, "Patients not found")
+
+    today = datetime.today().date()
+
+    def calculate_age(dob):
+        return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+    if filter == "new":
+        thirty_days_ago = today - timedelta(days=30)
+        patients = [
+            p for p in patients
+            if thirty_days_ago <= p.date_added.date() <= today
+        ]
+
+    elif filter == "adults":
+        patients = [p for p in patients if calculate_age(p.patient_dob) >= 18]
+
+    elif filter == "children":
+        patients = [p for p in patients if calculate_age(p.patient_dob) < 18]
+
+    elif filter == "male":
+        patients = [p for p in patients if p.patient_gender and p.patient_gender.lower() == "male"]
+
+    elif filter == "female":
+        patients = [p for p in patients if p.patient_gender and p.patient_gender.lower() == "female"]
+
+    elif filter != "all":
+        raise HTTPException(status_code=400, detail="Invalid filter")
+
+    if not patients:
+        raise_exception(404, "No patients matched the filter")
+
+    hospital = await get_specific_hospital(hospital_id)
+    if not hospital:
+        raise HTTPException(status_code=404, detail="hospital not found")
+
+    filename = (
+        f"{hospital.hospital_name}_"
+        f"{filter.lower()}_patients_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    )
+    path = os.path.join(EXPORT_DIR, filename)
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "Patient", "Email", "Phone",
+            "ID No.", "Gender", "D.O.B", "Date Added"
+        ])
+
+        for p in patients:
+            writer.writerow([
+                p.patient_name or "",
+                p.patient_email or "",
+                p.patient_phone or "",
+                p.patient_id_number or "",
+                p.patient_gender or "",
+                p.patient_dob.strftime("%Y-%m-%d"),
+                p.date_added.strftime("%Y-%m-%d")
+            ])
+
+    return FileResponse(
+        path,
+        media_type="text/csv",
         filename=filename
     )
 

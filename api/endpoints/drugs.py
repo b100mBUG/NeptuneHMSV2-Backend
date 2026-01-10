@@ -27,7 +27,7 @@ EXPORT_DIR = "exports"
 os.makedirs(EXPORT_DIR, exist_ok=True)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__)) 
-logo_path = os.path.join(BASE_DIR, ".png")
+logo_path = os.path.join(BASE_DIR, "logo.png")
 
 router = APIRouter()
 
@@ -56,48 +56,67 @@ async def fetch_specific_drug(hospital_id: str, drug_id: str):
     return drug
 
 @router.get("/drugs-export-pdf")
-async def export_drug_pdf(hospital_id: str, filter):
+async def export_drug_pdf(
+    hospital_id: str,
+    filter: str
+):
     drugs = await fetch_drugs(hospital_id, "all", "desc")
-    if filter == "total":
-        drugs = drugs
-    elif filter == "new":
-        today = datetime.today().date()
-        thirty_days_ago = today - timedelta(days=30)
+    if not drugs:
+        raise_exception(404, "Drugs not found")
 
+    today = datetime.today().date()
+
+    if filter == "total":
+        pass
+
+    elif filter == "new":
+        thirty_days_ago = today - timedelta(days=30)
         drugs = [
-            drug for drug in drugs
-            if thirty_days_ago <= drug.date_added.date() <= today
+            d for d in drugs
+            if thirty_days_ago <= d.date_added.date() <= today
         ]
+
     elif filter == "expired":
-        today = datetime.today().date()
-        drugs = [drug for drug in drugs if drug.drug_expiry.date() <= today]
-    
+        drugs = [
+            d for d in drugs
+            if d.drug_expiry and d.drug_expiry.date() <= today
+        ]
+
     elif filter == "safe":
-        today = datetime.today().date()
-        drugs = [drug for drug in drugs if drug.drug_expiry.date() > today]
+        drugs = [
+            d for d in drugs
+            if d.drug_expiry and d.drug_expiry.date() > today
+        ]
 
     elif filter == "available":
-        drugs = [drug for drug in drugs if drug.drug_quantity > 0]
-    
-    elif filter == "depleted":
-        drugs = [drug for drug in drugs if drug.drug_quantity <= 0]
-    
-    elif filter == "sellable":
-        today = datetime.today().date()
-        expired_drugs = [drug for drug in drugs if drug.drug_expiry.date() <= today]
+        drugs = [d for d in drugs if d.drug_quantity > 0]
 
-        drugs  = [
-            drug 
-            for drug in drugs
-            if drug.drug_quantity > 0 and 
-            drug not in expired_drugs
+    elif filter == "depleted":
+        drugs = [d for d in drugs if d.drug_quantity <= 0]
+
+    elif filter == "sellable":
+        drugs = [
+            d for d in drugs
+            if d.drug_quantity > 0
+            and d.drug_expiry
+            and d.drug_expiry.date() > today
         ]
-    
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid filter")
+
+    if not drugs:
+        raise_exception(404, "No drugs matched the filter")
+
     hospital = await get_specific_hospital(hospital_id)
     if not hospital:
         raise HTTPException(status_code=404, detail="hospital not found")
-    
-    filename = f"{hospital.hospital_name}_{filter.lower()}_drugs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+    filename = (
+        f"{hospital.hospital_name}_"
+        f"{filter.lower()}_drugs_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    )
     path = os.path.join(EXPORT_DIR, filename)
 
     doc = SimpleDocTemplate(
@@ -110,115 +129,155 @@ async def export_drug_pdf(hospital_id: str, filter):
     )
 
     styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        'TitleStyle',
-        parent=styles['Title'],
-        alignment=1,
-        fontSize=18,
-        textColor=colors.HexColor("#2F4F4F"),
-        spaceAfter=12
-    )
-
-    header_style = ParagraphStyle(
-        'HeaderStyle',
-        parent=styles['Normal'],
-        fontSize=11,
-        leading=14,
-        spaceAfter=14,
-    )
-
-    table_cell_style = ParagraphStyle(
-        'TableCell',
-        parent=styles['Normal'],
-        fontSize=10,
-    )
-
-    footer_style = ParagraphStyle(
-        'Footer',
-        parent=styles['Normal'],
-        alignment=1,
-        fontSize=10,
-        textColor=colors.HexColor("#555555"),
-    )
-
     elements = []
 
+    elements.append(Paragraph(
+        f"<b>{hospital.hospital_name}</b><br/>"
+        f"{hospital.hospital_email} | {hospital.hospital_contact}<br/>"
+        f"Date: {today.strftime('%B %d, %Y')}",
+        styles["Normal"]
+    ))
+
+    elements.append(Spacer(1, 20))
+
     if os.path.exists(logo_path):
-        logo = Image(logo_path, width=90, height=90)
-        logo.hAlign = 'CENTER'
-        elements.append(logo)
+        elements.append(Image(logo_path, width=90, height=90))
         elements.append(Spacer(1, 8))
 
-    hospital_info = f"""
-    <b>{hospital.hospital_name}</b><br/>
-    {hospital.hospital_email} | {hospital.hospital_contact}<br/>
-    Date: {datetime.today().strftime("%B %d, %Y")}
-    """
+    elements.append(Paragraph(
+        f"{filter.capitalize()} Drugs Report",
+        styles["Title"]
+    ))
 
-    elements.append(Paragraph(hospital_info, header_style))
-    elements.append(Spacer(1, 25))
-
-    report_title = f"{filter.capitalize()} Drugs Report"
-    elements.append(Paragraph(report_title, title_style))
-    elements.append(Spacer(1, 14))
-
-
-    data = [
-        ["Drug", "Category", "Quantity", "Price", "Expiry", "Date Added"]
-    ]
+    data = [[
+        "Drug", "Category", "Quantity",
+        "Price", "Expiry", "Date Added"
+    ]]
 
     for d in drugs:
         data.append([
-            Paragraph(d.drug_name or "", table_cell_style),
-            Paragraph(d.drug_category or "", table_cell_style),
-            Paragraph(str(d.drug_quantity), table_cell_style),
-            Paragraph(f"Ksh. {d.drug_price}", table_cell_style),
-            Paragraph(str(d.drug_expiry).split(" ")[0], table_cell_style),
-            Paragraph(str(d.date_added).split(" ")[0], table_cell_style)
+            d.drug_name or "",
+            d.drug_category or "",
+            str(d.drug_quantity),
+            f"Ksh. {d.drug_price}",
+            d.drug_expiry.strftime("%Y-%m-%d") if d.drug_expiry else "",
+            d.date_added.strftime("%Y-%m-%d")
         ])
 
-    col_widths = [3.5*cm, 3.5*cm, 3*cm, 2.5*cm, 3*cm, 3*cm]
+    table = Table(
+        data,
+        colWidths=[3.5*cm, 3.5*cm, 3*cm, 2.5*cm, 3*cm, 3*cm],
+        repeatRows=1
+    )
 
-    table = Table(data, colWidths=col_widths, repeatRows=1)
-    table_style = TableStyle([
+    table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#2F8F46")),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('GRID', (0,0), (-1,-1), 0.4, colors.grey),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,0), 11),
+    ]))
 
-        ('GRID', (0,0), (-1,-1), 0.4, colors.grey),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.whitesmoke, colors.lightgrey]),
-        ('LEFTPADDING', (0,0), (-1,-1), 4),
-        ('RIGHTPADDING', (0,0), (-1,-1), 4),
-    ])
-
-    table.setStyle(table_style)
+    elements.append(Spacer(1, 15))
     elements.append(table)
-    elements.append(Spacer(1, 35))
-
-
-    signature_section = """
-    <br/><br/>
-    _____________________________<br/>
-    <b>Authorized Signature</b><br/>
-    Generated by <b>NeptuneHMS Admin</b>
-    """
-
-    elements.append(Paragraph(signature_section, styles["Normal"]))
-    elements.append(Spacer(1, 40))
-
-
-    footer_text = "This report was generated electronically and does not require a physical signature."
-    elements.append(Paragraph(footer_text, footer_style))
 
     doc.build(elements)
 
     return FileResponse(
         path,
         media_type="application/pdf",
+        filename=filename
+    )
+
+@router.get("/drugs-export-csv")
+async def export_drug_csv(
+    hospital_id: str,
+    filter: str
+):
+    drugs = await fetch_drugs(hospital_id, "all", "desc")
+    if not drugs:
+        raise_exception(404, "Drugs not found")
+
+    today = datetime.today().date()
+
+    if filter == "total":
+        pass
+
+    elif filter == "new":
+        thirty_days_ago = today - timedelta(days=30)
+        drugs = [
+            d for d in drugs
+            if thirty_days_ago <= d.date_added.date() <= today
+        ]
+
+    elif filter == "expired":
+        drugs = [
+            d for d in drugs
+            if d.drug_expiry and d.drug_expiry.date() <= today
+        ]
+
+    elif filter == "safe":
+        drugs = [
+            d for d in drugs
+            if d.drug_expiry and d.drug_expiry.date() > today
+        ]
+
+    elif filter == "available":
+        drugs = [d for d in drugs if d.drug_quantity > 0]
+
+    elif filter == "depleted":
+        drugs = [d for d in drugs if d.drug_quantity <= 0]
+
+    elif filter == "sellable":
+        drugs = [
+            d for d in drugs
+            if d.drug_quantity > 0
+            and d.drug_expiry
+            and d.drug_expiry.date() > today
+        ]
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid filter")
+
+    if not drugs:
+        raise_exception(404, "No drugs matched the filter")
+
+    hospital = await get_specific_hospital(hospital_id)
+    if not hospital:
+        raise HTTPException(status_code=404, detail="hospital not found")
+
+    filename = (
+        f"{hospital.hospital_name}_"
+        f"{filter.lower()}_drugs_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    )
+    path = os.path.join(EXPORT_DIR, filename)
+
+    with open(path, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+
+        writer.writerow([
+            "Drug",
+            "Category",
+            "Quantity",
+            "Price (Ksh)",
+            "Expiry Date",
+            "Date Added"
+        ])
+
+        for d in drugs:
+            writer.writerow([
+                d.drug_name or "",
+                d.drug_category or "",
+                d.drug_quantity,
+                d.drug_price,
+                d.drug_expiry.strftime("%Y-%m-%d") if d.drug_expiry else "",
+                d.date_added.strftime("%Y-%m-%d")
+            ])
+
+    return FileResponse(
+        path,
+        media_type="text/csv",
         filename=filename
     )
 
